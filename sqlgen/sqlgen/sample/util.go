@@ -4,38 +4,23 @@ import (
 	. "github.com/pingcap/tidb-tools/sqlgen/sqlgen"
 )
 
-var counter = map[string]int{}
-const maxLoopback = 4
+var counter map[string]int
 
-type Fn struct {
+type NamedRule struct {
 	name string
-	f    func() Result
+	rule func() Rule
 }
 
-func (fn Fn) Name() string {
-	return fn.name
-}
-
-func (fn Fn) Call() Result {
-	fnName := fn.name
-	// Before calling function.
-	counter[fnName]++
-	if counter[fnName] > maxLoopback {
-		return Result{Tp: Invalid}
+func (nr NamedRule) Gen() (res string, ok bool) {
+	if r, ok1 := counter[nr.name]; ok1 {
+		if r <= 0 {
+			ok = false
+			return
+		} else {
+			counter[nr.name] -= 1
+			return nr.rule().Gen()
+		}
+	} else {
+		return nr.rule().Gen()
 	}
-
-	ret := fn.f()
-	// After calling function.
-	counter[fnName]--
-	return ret
-}
-
-func (fn Fn) Cancel() {
-	counter[fn.name]--
-}
-
-func Const(str string) Fn {
-	return Fn{name: str, f: func() Result {
-		return Result{Tp: PlainString, Value: str}
-	}}
 }

@@ -333,7 +333,7 @@ yynewstate:
 	yystate = int(yyParseTab[yyS[yyp].yys][x]) + yyTabOfs
 	/* reduction by production r */
 	if yyDebug >= 2 {
-		__yyfmt__.Printf("reduce using rule %v (%s), and goto state %d\n", r, yySymNames[x], yystate)
+		__yyfmt__.Printf("reduce using Opt %v (%s), and goto state %d\n", r, yySymNames[x], yystate)
 	}
 
 	switch r {

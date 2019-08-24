@@ -12,49 +12,50 @@ import (
 var Generate = generate()
 
 func generate() func() string {
+	start = NamedRule{
+		name: "start",
+		rule: func() Rule {
+			return Or(
+				Opt(1, A),
+				Opt(1, B),
+			)
+		},
+	}
+
+	A = NamedRule{
+		name: "A",
+		rule: func() Rule {
+			return Or(
+				Opt(1, Const("a")),
+				Opt(1, Const("a"), B),
+			)
+		},
+	}
+
+	B = NamedRule{
+		name: "B",
+		rule: func() Rule {
+			return SelfRec(
+				Range{0, 255},
+				[]OrOpt{
+					Opt(1, Const("b")),
+				},
+				[]func(rule Rule) OrOpt{
+					func(rule Rule) OrOpt { return Opt(1, A, rule) },
+				},
+			)
+		},
+	}
+
 	rand.Seed(time.Now().UnixNano())
 	retFn := func() string {
-		res := start.f()
-		switch res.Tp {
-		case PlainString:
-			return res.Value
-		case Invalid:
+		if res, ok := start.Gen(); ok {
+			return res
+		} else {
 			log.Println("Invalid SQL")
 			return ""
-		default:
-			log.Fatalf("Unsupported result type '%v'", res.Tp)
 		}
-		return "impossible to reach"
 	}
-
-	
-	start = Fn{
-		name: "start",
-		f: func() Result {
-			return Random(A, Or, 
-				B, 
-			)
-		},
-	}
-
-	A = Fn{
-		name: "A",
-		f: func() Result {
-			return Random(Const("a"), Or, 
-				Const("a"), B, 
-			)
-		},
-	}
-
-	B = Fn{
-		name: "B",
-		f: func() Result {
-			return Random(Const("b"), Or, 
-				A, 
-			)
-		},
-	}
-
 
 	return retFn
 }

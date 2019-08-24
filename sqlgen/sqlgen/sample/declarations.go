@@ -1,5 +1,7 @@
 package sample
 
-var A Fn
-var B Fn
-var start Fn
+import . "github.com/pingcap/tidb-tools/sqlgen/sqlgen"
+
+var start Rule
+var A Rule
+var B Rule
