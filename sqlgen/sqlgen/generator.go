@@ -40,7 +40,7 @@ func writeGenerate(prodName string, prodMap map[string]*Production, packageName 
 		if err != nil {
 			log.Fatal(err)
 		}
-		MustWrite(w, fmt.Sprintf(templateMain, prodName, sb.String()))
+		MustWrite(w, fmt.Sprintf(templateMain, sb.String(), prodName))
 	})
 	return allProds
 }
@@ -53,10 +53,15 @@ func writeUtil(packageName string) {
 
 func writeDeclarations(allProds map[string]struct{}, packageName string) {
 	openAndWrite("declarations.go", packageName, func(w *bufio.Writer) {
-		MustWrite(w, "\n")
+		MustWrite(w, `
+import (
+	. "github.com/pingcap/tidb-tools/sqlgen/sqlgen"
+)
+
+`)
 		for p := range allProds {
 			p = convertHead(p)
-			MustWrite(w, fmt.Sprintf("var %s Fn\n", p))
+			MustWrite(w, fmt.Sprintf("var %s Rule\n", p))
 		}
 	})
 }
@@ -92,22 +97,20 @@ import (
 var Generate = generate()
 
 func generate() func() string {
-	rand.Seed(time.Now().UnixNano())
-	retFn := func() string {
-		res := %s.f()
-		switch res.Tp {
-		case PlainString:
-			return res.Value
-		case Invalid:
-			log.Println("Invalid SQL")
-			return ""
-		default:
-			log.Fatalf("Unsupported result type '%%v'", res.Tp)
-		}
-		return "impossible to reach"
+	%s
+	counter = map[string]int{
+		/* Custom Limit Here... */
 	}
 
-	%s
+	rand.Seed(time.Now().UnixNano())
+	retFn := func() string {
+		if res, ok := %s.Gen(); ok {
+			return res
+		} else {
+			log.Println("Invalid SQL")
+			return ""
+		}
+	}
 
 	return retFn
 }
@@ -118,58 +121,61 @@ import (
 	. "github.com/pingcap/tidb-tools/sqlgen/sqlgen"
 )
 
-var counter = map[string]int{}
-const maxLoopback = 2
+var counter map[string]int
 
-type Fn struct {
+type NamedRule struct {
 	name string
-	f    func() Result
+	rule func() Rule
 }
 
-func (fn Fn) Name() string {
-	return fn.name
-}
-
-func (fn Fn) Call() Result {
-	fnName := fn.name
-	// Before calling function.
-	counter[fnName]++
-	if counter[fnName] > maxLoopback {
-		return Result{Tp: Invalid}
+func (nr NamedRule) Gen() (res string, ok bool) {
+	if r, ok1 := counter[nr.name]; ok1 {
+		if r <= 0 {
+			ok = false
+			return
+		} else {
+			counter[nr.name] -= 1
+			return nr.rule().Gen()
+		}
+	} else {
+		return nr.rule().Gen()
 	}
-
-	ret := fn.f()
-	// After calling function.
-	counter[fnName]--
-	return ret
-}
-
-func (fn Fn) Cancel() {
-	counter[fn.name]--
-}
-
-func Const(str string) Fn {
-	return Fn{name: str, f: func() Result {
-		return Result{Tp: PlainString, Value: str}
-	}}
 }
 `
 
-const templateR = `
-	%s = Fn{
+const templateO = `
+	%s = NamedRule{
 		name: "%s",
-		f: func() Result {
-			return Random(%s
+		rule: func() Rule {
+			return Or(
+				%s
+			)
+		},
+	}
+`
+
+const templateR = `
+	%s = NamedRule{
+		name: "%s",
+		rule: func() Rule {
+			return SelfRec(
+				Range{0, 255},
+				[]OrOpt{
+					%s
+				},
+				[]func(Rule) OrOpt{
+					%s
+				},
 			)
 		},
 	}
 `
 
 const templateS = `
-	%s = Fn{
+	%s = NamedRule{
 		name: "%s",
-		f: func() Result {
-			return Str("%s")
+		rule: func() Rule {
+			return Const("%s")
 		},
 	}
 `
@@ -192,23 +198,67 @@ func convertProdToCode(p *Production) string {
 		}
 	}
 
-	var bodyStr strings.Builder
-	for i, body := range p.bodyList {
-		for _, s := range body.seq {
-			if isLit, ok := literal(s); ok {
-				s = fmt.Sprintf("Const(\"%s\")", isLit)
-			} else {
-				s = convertHead(s)
-			}
-			bodyStr.WriteString(s)
-			bodyStr.WriteString(", ")
-		}
-		if i != len(p.bodyList)-1 {
-			bodyStr.WriteString("Or, \n\t\t\t\t")
+	if p.isSelfRec {
+		return buildSelfRecProd(prodHead, p)
+	} else {
+		return buildNormProd(prodHead, p)
+	}
+}
+
+func buildSelfRecProd(ph string, p *Production) string {
+	var nor strings.Builder
+	var rec strings.Builder
+	for _, body := range p.bodyList {
+		if body.isSelfRec {
+			rec.WriteString(fmt.Sprintf("func(_r Rule) OrOpt { return Opt(1%s) },\n\t\t\t\t\t",
+				consRecBody(ph, &body)))
+		} else {
+			nor.WriteString(fmt.Sprintf("Opt(1%s),\n\t\t\t\t\t", consNormBody(&body)))
 		}
 	}
+	nor.WriteString("/* Custom Rules Here... */")
+	rec.WriteString("/* Custom Rules Here... */")
 
-	return fmt.Sprintf(templateR, prodHead, p.head, bodyStr.String())
+	return fmt.Sprintf(templateR, ph, p.head, nor.String(), rec.String())
+}
+
+func buildNormProd(ph string, p *Production) string {
+	var bodyListStr strings.Builder
+	for _, body := range p.bodyList {
+		bodyListStr.WriteString(fmt.Sprintf("Opt(1%s),\n\t\t\t\t", consNormBody(&body)))
+	}
+	bodyListStr.WriteString("/* Custom Rules Here... */")
+
+	return fmt.Sprintf(templateO, ph, p.head, bodyListStr.String())
+}
+
+func consNormBody(body *Body) string {
+	var bodyStr strings.Builder
+	for _, s := range body.seq {
+		if isLit, ok := literal(s); ok {
+			bodyStr.WriteString(fmt.Sprintf(", Const(\"%s\")", isLit))
+		} else {
+			bodyStr.WriteString(fmt.Sprintf(", %s", convertHead(s)))
+		}
+	}
+	return bodyStr.String()
+}
+
+func consRecBody(hd string, body *Body) string {
+	var bodyStr strings.Builder
+	for _, s := range body.seq {
+		if isLit, ok := literal(s); ok {
+			bodyStr.WriteString(fmt.Sprintf(", Const(\"%s\")", isLit))
+		} else {
+			s = convertHead(s)
+			if s == hd {
+				bodyStr.WriteString(", _r")
+			} else {
+				bodyStr.WriteString(fmt.Sprintf(", %s", s))
+			}
+		}
+	}
+	return bodyStr.String()
 }
 
 func trimmedStrs(origin []string) []string {
@@ -266,6 +316,9 @@ import (
 
 func TestA(t *testing.T) {
 	for i := 0; i < 10; i++ {
+		counter = map[string]int{
+			/* Custom Limit Here... */
+		}
 		fmt.Println(Generate())
 	}
 }

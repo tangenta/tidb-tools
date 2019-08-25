@@ -12,9 +12,25 @@ func BuildProdMap(prods []*Production) map[string]*Production {
 	ret := make(map[string]*Production)
 	for _, v := range prods {
 		ret[v.head] = v
+		checkSelfRec(v)
 	}
 	checkProductionMap(ret)
 	return ret
+}
+
+func checkSelfRec(p *Production) {
+	for i, seqs := range p.bodyList {
+		for _, s := range seqs.seq {
+			if isLiteral(s) {
+				continue
+			}
+			if s == p.head {
+				p.isSelfRec = true
+				p.bodyList[i].isSelfRec = true
+				break
+			}
+		}
+	}
 }
 
 func checkProductionMap(productionMap map[string]*Production) {
@@ -68,7 +84,7 @@ func ParseYacc(yaccFilePath string) ([]*Production, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer func() {_ = file.Close()}()
+	defer func() { _ = file.Close() }()
 
 	prodStrs := splitProdStr(bufio.NewReader(file))
 	return parseProdStr(prodStrs)

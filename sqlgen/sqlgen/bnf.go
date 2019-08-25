@@ -9,9 +9,10 @@ import (
 )
 
 type Production struct {
-	head     string
-	maxLoop  int
-	bodyList BodyList
+	head      string
+	maxLoop   int
+	bodyList  BodyList
+	isSelfRec bool
 }
 
 func (p *Production) String() string {
@@ -49,6 +50,7 @@ func writeOptNum(sb *strings.Builder, i int) {
 type Body = struct {
 	seq          []string
 	randomFactor int
+	isSelfRec    bool
 }
 
 type BodyList = []Body
