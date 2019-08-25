@@ -25,6 +25,7 @@ func BuildLib(yaccFilePath, prodName, packageName, outputFilePath string) {
 	allProds := writeGenerate(prodName, prodMap, packageName)
 	writeUtil(packageName)
 	writeDeclarations(allProds, packageName)
+	writeLimit(allProds, packageName)
 	writeTest(packageName)
 }
 
@@ -66,11 +67,24 @@ import (
 	})
 }
 
+func writeLimit(allProds map[string]struct{}, packageName string) {
+	openAndWrite("limits.go", packageName, func(w *bufio.Writer) {
+		var sb strings.Builder
+		for p := range allProds {
+			p = convertHead(p)
+			sb.WriteString(fmt.Sprintf("\t\"%s\": 127,\n", p))
+		}
+		sb.WriteString("\t/* Custom Limits Here... */")
+		MustWrite(w, fmt.Sprintf(templateLimit, sb.String()))
+	})
+}
+
 func writeTest(packageName string) {
 	openAndWrite(packageName+"_test.go", packageName, func(w *bufio.Writer) {
 		MustWrite(w, testSnippet)
 	})
 }
+
 
 func openAndWrite(path string, pkgName string, doWrite func(*bufio.Writer)) {
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
@@ -98,10 +112,6 @@ var Generate = generate()
 
 func generate() func() string {
 	%s
-	counter = map[string]int{
-		/* Custom Limit Here... */
-	}
-
 	rand.Seed(time.Now().UnixNano())
 	retFn := func() string {
 		if res, ok := %s.Gen(); ok {
@@ -116,12 +126,16 @@ func generate() func() string {
 }
 `
 
+const templateLimit = `
+var counter = map[string]int{
+%s
+}
+`
+
 const utilSnippet = `
 import (
 	. "github.com/pingcap/tidb-tools/sqlgen/sqlgen"
 )
-
-var counter map[string]int
 
 type NamedRule struct {
 	name string
@@ -316,9 +330,6 @@ import (
 
 func TestA(t *testing.T) {
 	for i := 0; i < 10; i++ {
-		counter = map[string]int{
-			/* Custom Limit Here... */
-		}
 		fmt.Println(Generate())
 	}
 }
