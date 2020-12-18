@@ -1,0 +1,22 @@
+init: create_table; insert_data
+
+create_table:
+    create table t (
+        c_int int,
+        c_str varchar(40),
+        c_datetime datetime,
+        c_timestamp timestamp,
+        c_double double,
+        c_decimal decimal(12, 6)
+        key_primary
+        key_c_int
+        key_c_str
+        key_c_decimal
+        key_c_datetime
+        key_c_timestamp
+    )
+
+insert_data:
+    insert into t values next_row, next_row, next_row, next_row, next_row;
+    insert into t values next_row, next_row, next_row, next_row, next_row;
+    insert into t values next_row, next_row, next_row, next_row, next_row;

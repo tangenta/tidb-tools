@@ -14,6 +14,7 @@
 package sqlgen
 
 import (
+	"fmt"
 	"log"
 	"math/rand"
 	"strconv"
@@ -32,7 +33,7 @@ type ProductionListener interface {
 }
 
 func And(fn ...Fn) Fn {
-	return Fn{RandomFactor: 1, F: func() Result {
+	return Fn{Weight: 1, F: func() Result {
 		return collectResult(fn...)
 	}}
 }
@@ -41,20 +42,33 @@ func Opt(fn Fn) Fn {
 	if RandomBool() {
 		return fn
 	}
-	return EmptyFn()
+	return EmptyStringFn()
 }
 
-func RandomNum(low, high int) string {
-	num := rand.Intn(high - low + 1)
-	return strconv.Itoa(num + low)
+func RandomNum(low, high int64) string {
+	num := rand.Int63n(high - low + 1)
+	return strconv.FormatInt(num + low, 10)
+}
+
+func RandomFloat(low, high float64) string {
+	f := low + rand.Float64() * (high - low)
+	return fmt.Sprintf("%f", f)
 }
 
 func RandomBool() bool {
 	return rand.Intn(2) == 0
 }
 
+func If(condition bool, fn Fn) Fn {
+	if condition {
+		return fn
+	}
+	return NoneFn()
+}
+
 func Or(fns ...Fn) Fn {
-	return Fn{RandomFactor: 1, F: func() Result {
+	fns = filterNoneFns(fns)
+	return Fn{Weight: 1, F: func() Result {
 		for len(fns) > 0 {
 			randNum := randomSelectByFactor(fns)
 			chosenFn := fns[randNum]
@@ -69,6 +83,42 @@ func Or(fns ...Fn) Fn {
 	}}
 }
 
+func Repeat(fn Fn, cnt int) Fn {
+	if cnt == 0 {
+		return EmptyStringFn()
+	}
+	fns := make([]Fn, 0, cnt)
+	for i := 0; i < cnt; i++ {
+		fns[i] = fn
+	}
+	return And(fns...)
+}
+
+func RepeatRange(low, high int, fn Fn) Fn {
+	return Repeat(fn, low + rand.Intn(high - low))
+}
+
+func Join(sep Fn, fns ...Fn) Fn {
+	newFns := make([]Fn, 0, len(fns)*2-1)
+	for i, f := range fns {
+		newFns = append(newFns, f)
+		if i != len(fns) - 1 {
+			newFns = append(newFns, sep)
+		}
+	}
+	return And(newFns...)
+}
+
+func filterNoneFns(fns []Fn) []Fn {
+	for i := 0; i < len(fns); i++ {
+		if fns[i].Name == NoneFn().Name {
+			fns[i], fns[len(fns)-1] = fns[len(fns)-1], fns[i]
+			fns = fns[:len(fns)-1]
+		}
+	}
+	return fns
+}
+
 func collectResult(fns ...Fn) Result {
 	var doneF []Fn
 	var resStr strings.Builder
@@ -77,7 +127,7 @@ func collectResult(fns ...Fn) Result {
 		switch res.Tp {
 		case PlainString:
 			doneF = append(doneF, f)
-			resStr.WriteString(res.Value)
+			resStr.WriteString(strings.Trim(res.Value, " "))
 			if i != len(fns) {
 				resStr.WriteString(" ")
 			}
@@ -113,7 +163,7 @@ func randomSelectByFactor(fns []Fn) int {
 	num := rand.Intn(sumRandFactor(fns))
 	acc := 0
 	for i, f := range fns {
-		acc += f.RandomFactor
+		acc += f.Weight
 		if acc > num {
 			return i
 		}
@@ -132,7 +182,7 @@ func forEachProdListener(fn func(ProductionListener)) {
 func sumRandFactor(fs []Fn) int {
 	total := 0
 	for _, f := range fs {
-		total += f.RandomFactor
+		total += f.Weight
 	}
 	return total
 }

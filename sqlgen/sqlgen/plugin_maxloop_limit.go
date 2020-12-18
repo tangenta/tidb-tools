@@ -13,6 +13,8 @@
 
 package sqlgen
 
+import "fmt"
+
 // MaxLoopCounter implements sqlgen.ProductionListener.
 type MaxLoopCounter struct {
 	Counter     map[string]int
@@ -32,7 +34,7 @@ func (pl *MaxLoopCounter) BeforeProductionGen(fn *Fn) {
 	fnName := fn.Name
 	pl.Counter[fnName]++
 	if pl.Counter[fnName] > pl.MaxLoopback {
-		fn.F = InvalidFn()
+		fn.F = InvalidFunc(fmt.Sprintf("reach max loop back: %d", pl.MaxLoopback))
 	}
 }
 

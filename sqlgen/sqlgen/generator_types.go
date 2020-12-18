@@ -13,7 +13,10 @@
 
 package sqlgen
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // ResultType is used to determine whether a Result is valid.
 type ResultType int
@@ -37,13 +40,11 @@ func InvalidResult() Result {
 
 var innerInvalidResult = Result{Tp: Invalid}
 
-// InvalidFn return a functions that returns invalid result.
-func InvalidFn() func() Result {
-	return innerInvalidFn
-}
-
-var innerInvalidFn = func() Result {
-	return Result{Tp: Invalid}
+// InvalidFunc return a functions that returns invalid result.
+func InvalidFunc(msg string) func() Result {
+	return func() Result {
+		return Result{Tp: Invalid, Value: msg}
+	}
 }
 
 // StrResult returns a PlainString Result.
@@ -53,9 +54,9 @@ func StrResult(str string) Result {
 
 // Fn is a callable object.
 type Fn struct {
-	Name         string
-	F            func() Result
-	RandomFactor int
+	Name   string
+	F      func() Result
+	Weight int
 }
 
 func NewFn(name string, fn func() Fn) Fn {
@@ -64,7 +65,7 @@ func NewFn(name string, fn func() Fn) Fn {
 		F: func() Result {
 			return fn().F()
 		},
-		RandomFactor: 1,
+		Weight: 1,
 	}
 }
 
@@ -74,44 +75,82 @@ func NewConstFn(name string, fn Fn) Fn {
 		F: func() Result {
 			return fn.F()
 		},
-		RandomFactor: 1,
+		Weight: 1,
 	}
 }
 
-func (f Fn) SetRF(randomFactor int) Fn {
+func (f Fn) SetW(weight int) Fn {
 	return Fn{
-		Name:         f.Name,
-		F:            f.F,
-		RandomFactor: randomFactor,
+		Name:   f.Name,
+		F:      f.F,
+		Weight: weight,
 	}
 }
 
 // Str is a Fn which simply returns str.
 func Str(str string) Fn {
 	return Fn{
-		RandomFactor: 1,
+		Weight: 1,
 		F: func() Result {
 			return StrResult(str)
 		}}
 }
 
+func Strf(str string, fns ...Fn) Fn {
+	if len(fns) == 0 {
+		return Str(str)
+	}
+	ss := strings.Split(str, "[%fn]")
+	if len(ss) != len(fns) + 1 {
+		return InvalidFn("[param count mismatched] str: %s", str)
+	}
+	strs := make([]Fn, 0, 2 * len(ss) - 1)
+	for i := 0; i < len(fns); i++ {
+		strs = append(strs, Str(ss[i]))
+		strs = append(strs, fns[i])
+		if i == len(fns) - 1 {
+			strs = append(strs, Str(ss[i+1]))
+		}
+	}
+	return And(strs...)
+}
+
 func Strs(strs ...string) Fn {
 	return Fn{
-		RandomFactor: 1,
+		Weight: 1,
 		F: func() Result {
 			return StrResult(strings.Join(strs, " "))
 		},
 	}
 }
 
-// EmptyFn is a Fn which simply returns empty string.
-func EmptyFn() Fn {
+// EmptyStringFn is a Fn which simply returns empty string.
+func EmptyStringFn() Fn {
 	return innerEmptyFn
 }
 
 var innerEmptyFn = Fn{
-	RandomFactor: 1,
+	Weight: 1,
 	F: func() Result {
 		return Result{Tp: PlainString, Value: ""}
 	},
+}
+
+func NoneFn() Fn {
+	return innerNoneFn
+}
+
+var innerNoneFn = Fn{
+	Weight: 1,
+	Name:   "_$none_fn",
+}
+
+func InvalidFn(msg string, params ...interface{}) Fn {
+	msg = fmt.Sprintf(msg, params...)
+	return Fn{
+		F: func() Result {
+			return Result{Tp: Invalid, Value: msg}
+		},
+		Weight: 1,
+	}
 }
